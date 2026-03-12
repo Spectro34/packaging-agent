@@ -1,0 +1,214 @@
+##
+## Kubernetes manifests for osc-mcp and packaging-agent MCP servers
+## Deployed alongside n8n in the suse-private-ai namespace
+##
+## TEMPLATE: Copy to k8s-mcp-servers.yaml and replace REPLACE_ME values
+##
+
+# ─── Secrets ─────────────────────────────────────────────────────────────────
+apiVersion: v1
+kind: Secret
+metadata:
+  name: mcp-credentials
+  namespace: suse-private-ai
+  labels:
+    app.kubernetes.io/part-of: packaging-agent
+type: Opaque
+stringData:
+  OBS_USER: "REPLACE_ME"
+  OBS_PASS: "REPLACE_ME"
+  OBS_API_URL: "https://api.opensuse.org"
+  OBS_PROJECT: "REPLACE_ME"
+  OPENAI_API_KEY: "REPLACE_ME"
+
+---
+# ─── Shared PVC for osc checkouts (both pods need file access) ───────────────
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: mcp-workdir
+  namespace: suse-private-ai
+  labels:
+    app.kubernetes.io/part-of: packaging-agent
+spec:
+  accessModes:
+  - ReadWriteOnce
+  resources:
+    requests:
+      storage: 10Gi
+
+---
+# ─── osc-mcp: Low-level OBS operations ──────────────────────────────────────
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: osc-mcp
+  namespace: suse-private-ai
+  labels:
+    app: osc-mcp
+    app.kubernetes.io/part-of: packaging-agent
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: osc-mcp
+  template:
+    metadata:
+      labels:
+        app: osc-mcp
+    spec:
+      containers:
+      - name: osc-mcp
+        image: localhost/osc-mcp:latest
+        imagePullPolicy: Never
+        command: ["/bin/sh", "-c"]
+        args:
+        - |
+          /opt/osc-mcp/osc-mcp \
+            --http 0.0.0.0:8666 \
+            --workdir /tmp/mcp-workdir \
+            --api "$OBS_API_URL" \
+            --user "$OBS_USER" \
+            --password "$OBS_PASS" \
+            -d
+        ports:
+        - containerPort: 8666
+          name: mcp
+          protocol: TCP
+        env:
+        - name: OBS_USER
+          valueFrom:
+            secretKeyRef:
+              name: mcp-credentials
+              key: OBS_USER
+        - name: OBS_PASS
+          valueFrom:
+            secretKeyRef:
+              name: mcp-credentials
+              key: OBS_PASS
+        - name: OBS_API_URL
+          valueFrom:
+            secretKeyRef:
+              name: mcp-credentials
+              key: OBS_API_URL
+        securityContext:
+          privileged: true
+        resources:
+          requests:
+            memory: 512Mi
+            cpu: 250m
+          limits:
+            memory: 8Gi
+            cpu: 4000m
+        volumeMounts:
+        - name: workdir
+          mountPath: /tmp/mcp-workdir
+        - name: buildroot
+          mountPath: /var/tmp/build-root
+        livenessProbe:
+          tcpSocket:
+            port: 8666
+          initialDelaySeconds: 10
+          periodSeconds: 30
+        readinessProbe:
+          tcpSocket:
+            port: 8666
+          initialDelaySeconds: 5
+          periodSeconds: 10
+      # packaging-agent sidecar — shares filesystem with osc-mcp
+      - name: packaging-agent
+        image: localhost/packaging-agent:latest
+        imagePullPolicy: Never
+        ports:
+        - containerPort: 8667
+          name: mcp
+          protocol: TCP
+        env:
+        - name: MCP_URL
+          value: "http://localhost:8666/mcp"
+        - name: OPENAI_API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: mcp-credentials
+              key: OPENAI_API_KEY
+        - name: OBS_USER
+          valueFrom:
+            secretKeyRef:
+              name: mcp-credentials
+              key: OBS_USER
+        - name: OBS_PASS
+          valueFrom:
+            secretKeyRef:
+              name: mcp-credentials
+              key: OBS_PASS
+        - name: OBS_API_URL
+          valueFrom:
+            secretKeyRef:
+              name: mcp-credentials
+              key: OBS_API_URL
+        - name: OBS_PROJECT
+          valueFrom:
+            secretKeyRef:
+              name: mcp-credentials
+              key: OBS_PROJECT
+        resources:
+          requests:
+            memory: 256Mi
+            cpu: 100m
+          limits:
+            memory: 1Gi
+            cpu: 1000m
+        volumeMounts:
+        - name: workdir
+          mountPath: /tmp/mcp-workdir
+        livenessProbe:
+          tcpSocket:
+            port: 8667
+          initialDelaySeconds: 15
+          periodSeconds: 30
+        readinessProbe:
+          tcpSocket:
+            port: 8667
+          initialDelaySeconds: 10
+          periodSeconds: 10
+      volumes:
+      - name: workdir
+        persistentVolumeClaim:
+          claimName: mcp-workdir
+      - name: buildroot
+        emptyDir:
+          sizeLimit: 20Gi
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: osc-mcp
+  namespace: suse-private-ai
+  labels:
+    app: osc-mcp
+spec:
+  selector:
+    app: osc-mcp
+  ports:
+  - port: 8666
+    targetPort: 8666
+    protocol: TCP
+    name: mcp
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: packaging-agent
+  namespace: suse-private-ai
+  labels:
+    app: packaging-agent
+spec:
+  selector:
+    app: osc-mcp
+  ports:
+  - port: 8667
+    targetPort: 8667
+    protocol: TCP
+    name: mcp

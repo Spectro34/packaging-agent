@@ -1,0 +1,5 @@
+fastmcp>=2.13
+mcp>=1.20
+httpx
+httpx-sse
+anyio

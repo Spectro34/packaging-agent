@@ -1,0 +1,26 @@
+FROM python:3.13-slim
+
+WORKDIR /app
+
+# Install system deps (osc is NOT needed — all OBS ops go through osc-mcp)
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install Python deps
+RUN pip install --no-cache-dir \
+    fastmcp>=2.13 \
+    mcp>=1.20 \
+    httpx \
+    httpx-sse \
+    anyio
+
+# Copy the packaging agent
+COPY packaging_agent/ /app/packaging_agent/
+
+# Config is injected via env vars or k8s secret, not config.json
+ENV PYTHONUNBUFFERED=1
+
+EXPOSE 8667
+
+# Run the MCP server on HTTP transport
+CMD ["python", "-m", "packaging_agent.mcp_server", "--http", "8667"]

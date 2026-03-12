@@ -1,0 +1,239 @@
+package buildlog
+
+import (
+	"bufio"
+	"regexp"
+	"strconv"
+	"strings"
+)
+
+type BuildPhase int
+
+const (
+	Header BuildPhase = iota
+	Preinstall
+	CopyingPackages
+	VMBoot
+	PackageCumulation
+	PackageInstallation
+	Build
+	PostBuildChecks
+	RPMLintReport
+	PackageComparison
+	Summary
+	Retries
+	Unknown
+)
+
+func (p BuildPhase) String() string {
+	return [...]string{
+		"Header",
+		"Preinstall",
+		"Copying packages",
+		"VM boot",
+		"Package cumulation",
+		"Package installation",
+		"Build",
+		"Post build checks",
+		"RPM lint report",
+		"Package comparison",
+		"Summary",
+		"Retries",
+		"Unknown",
+	}[p]
+}
+
+type Phase struct {
+	Type      BuildPhase
+	Succeeded bool
+	Lines     []string
+	Duration  int
+}
+
+type BuildLog struct {
+	Name    string
+	Project string
+	Distro  string
+	Arch    string
+	Phases  []Phase
+	rawlog  string
+}
+
+var (
+	buildInfoRegex  = regexp.MustCompile(`Building (\S+) for project '([^']+)' repository '([^']+)' arch '([^']+)'`)
+	localBuildRegex = regexp.MustCompile(`started "build (\S+)\.spec"`)
+	localBuildRoot  = regexp.MustCompile(`Using BUILD_ROOT=.*/([^-]+)-([^-/]+)`)
+	timeRegex       = regexp.MustCompile(`^\[\s*(\d+)s\]\s*`)
+)
+
+var phaseMatches = []struct {
+	phase   BuildPhase
+	matcher *regexp.Regexp
+}{
+	{Header, regexp.MustCompile(`^\[`)},
+	{Preinstall, regexp.MustCompile(`^\[\s*\d+s\] \[[\s\d/]+\] preinstalling`)},
+	{CopyingPackages, regexp.MustCompile(`^\[\s*\d+s\] copying packages\.`)},
+	{VMBoot, regexp.MustCompile(`^\[\s*\d+s\] booting kvm\.`)},
+	{PackageCumulation, regexp.MustCompile(`^\[\s*\d+s\] \[[\s\d/]+\] cumulate`)},
+	{PackageInstallation, regexp.MustCompile(`^\[\s*\d+s\] now installing cumulated packages`)},
+	{Build, regexp.MustCompile(`^\[\s*\d+s\] -----------------------------------------------------------------`)},
+	{PostBuildChecks, regexp.MustCompile(`^\[\s*\d+s\] \.\.\. checking for files with abuild user/group`)},
+	{RPMLintReport, regexp.MustCompile(`^\[\s*\d+s\] RPMLINT report:`)},
+	{PackageComparison, regexp.MustCompile(`^\[\s*\d+s\] \.\.\. comparing built packages with the former built`)},
+	{Summary, regexp.MustCompile(`^\[\s*\d+s\] \S+ finished "build .+"`)},
+	{Retries, regexp.MustCompile(`^Retried build at`)},
+}
+
+func nextPhase(current BuildPhase, line string) BuildPhase {
+	for i := int(current) + 1; i < len(phaseMatches); i++ {
+		if phaseMatches[i].matcher.MatchString(line) {
+			return phaseMatches[i].phase
+		}
+	}
+	return current
+}
+
+func extractTime(line string) (int, bool) {
+	matches := timeRegex.FindStringSubmatch(line)
+	if len(matches) < 2 {
+		return 0, false
+	}
+	seconds, err := strconv.Atoi(matches[1])
+	if err != nil {
+		return 0, false
+	}
+	return seconds, true
+}
+
+func Parse(logContent string) *BuildLog {
+	log := &BuildLog{
+		Phases: []Phase{},
+		rawlog: logContent,
+	}
+	scanner := bufio.NewScanner(strings.NewReader(logContent))
+	phase := Header
+	currentPhaseDetails := Phase{Type: phase}
+	var phaseStartTime int
+	var lastTime int
+	var hasError bool
+
+	for scanner.Scan() {
+		line := scanner.Text()
+
+		if newTime, ok := extractTime(line); ok {
+			lastTime = newTime
+		}
+
+		if matches := buildInfoRegex.FindStringSubmatch(line); len(matches) == 5 {
+			log.Name = matches[1]
+			log.Project = matches[2]
+			log.Distro = matches[3]
+			log.Arch = matches[4]
+		} else if matches := localBuildRegex.FindStringSubmatch(line); len(matches) == 2 {
+			log.Name = matches[1]
+		} else if matches := localBuildRoot.FindStringSubmatch(line); len(matches) == 3 {
+			log.Distro = matches[1]
+			log.Arch = matches[2]
+			log.Project = "local"
+		}
+
+		newPhase := nextPhase(phase, line)
+
+		if newPhase != phase {
+			currentPhaseDetails.Duration = lastTime - phaseStartTime
+			currentPhaseDetails.Succeeded = !hasError
+			log.Phases = append(log.Phases, currentPhaseDetails)
+
+			phase = newPhase
+			currentPhaseDetails = Phase{Type: phase}
+			phaseStartTime = lastTime
+			hasError = false
+		}
+		if strings.Contains(line, " FAILED") || strings.Contains(line, " ERROR") {
+			hasError = true
+		}
+		currentPhaseDetails.Lines = append(currentPhaseDetails.Lines, timeRegex.ReplaceAllString(line, ""))
+	}
+	currentPhaseDetails.Duration = lastTime - phaseStartTime
+	currentPhaseDetails.Succeeded = (currentPhaseDetails.Type == Summary && !hasError)
+	log.Phases = append(log.Phases, currentPhaseDetails)
+
+	return log
+}
+
+func (log *BuildLog) FormatJson(nrLines int, offset int, printSucceded bool, match, exclude string) map[string]any {
+	properties := map[string]string{
+		"Name":    log.Name,
+		"Project": log.Project,
+		"Distro":  log.Distro,
+		"Arch":    log.Arch,
+	}
+
+	var matchRe, excludeRe *regexp.Regexp
+	var err error
+	if match != "" {
+		matchRe, err = regexp.Compile(match)
+		if err != nil {
+			matchRe = nil
+		}
+	}
+	if exclude != "" {
+		excludeRe, err = regexp.Compile(exclude)
+		if err != nil {
+			excludeRe = nil
+		}
+	}
+
+	phases := []any{}
+	for _, phaseDetails := range log.Phases {
+		lines := phaseDetails.Lines
+		var filteredLines []string
+		if match != "" || exclude != "" {
+			for _, line := range lines {
+				if excludeRe != nil && excludeRe.MatchString(line) {
+					continue
+				}
+				if matchRe != nil && !matchRe.MatchString(line) {
+					continue
+				}
+				filteredLines = append(filteredLines, line)
+			}
+		} else {
+			filteredLines = lines
+		}
+
+		phaseData := map[string]any{
+			"Phase":    phaseDetails.Type.String(),
+			"Duration": phaseDetails.Duration,
+			"Success":  phaseDetails.Succeeded,
+			"NrLines":  len(filteredLines),
+		}
+
+		showLines := (printSucceded || !phaseDetails.Succeeded) || ((match != "" || exclude != "") && len(filteredLines) > 0)
+
+		if showLines {
+			if !printSucceded && phaseDetails.Succeeded && match == "" && exclude == "" {
+				// don't add lines
+			} else if len(filteredLines) > 0 {
+				currentOffset := offset
+				printLines := nrLines
+				if currentOffset+printLines > len(filteredLines) {
+					printLines = len(filteredLines) - currentOffset
+				}
+				if currentOffset == 0 {
+					currentOffset = len(filteredLines) - printLines
+					if currentOffset < 0 {
+						currentOffset = 0
+					}
+				}
+				phaseData["Lines"] = filteredLines[currentOffset:len(filteredLines)]
+			}
+		}
+		phases = append(phases, phaseData)
+	}
+
+	return map[string]any{
+		"Properties": properties,
+		"Phases":     phases,
+	}
+}

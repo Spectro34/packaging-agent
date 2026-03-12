@@ -1,0 +1,28 @@
+FROM opensuse/tumbleweed:latest
+
+# osc + full build toolchain for local package builds
+RUN zypper --non-interactive install --no-recommends \
+    osc build obs-service-download_files obs-service-go_modules obs-service-format_spec_file \
+    obs-service-tar_scm obs-service-set_version obs-service-recompress obs-service-obs_scm \
+    rpm-build rpmdevtools rpmlint \
+    ca-certificates curl tar gzip xz bzip2 cpio \
+    python3 python3-pip \
+    git patch diffutils \
+    && zypper clean -a
+
+WORKDIR /opt/osc-mcp
+
+# Copy the pre-built osc-mcp binary
+COPY osc-mcp /opt/osc-mcp/osc-mcp
+RUN chmod +x /opt/osc-mcp/osc-mcp
+
+# Workdir for checkouts and build roots
+RUN mkdir -p /tmp/mcp-workdir /var/tmp/build-root
+
+EXPOSE 8666
+
+# Create oscrc from env vars at startup, then launch osc-mcp
+COPY entrypoint.sh /opt/osc-mcp/entrypoint.sh
+RUN chmod +x /opt/osc-mcp/entrypoint.sh
+
+CMD ["/opt/osc-mcp/entrypoint.sh"]

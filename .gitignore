@@ -1,0 +1,43 @@
+# ─── Credentials & Secrets ────────────────────────────────────────────────────
+# NEVER commit real credentials
+config.json
+!config.json.example
+*.env
+.env*
+!.env.example
+secrets/
+*.secret
+*.key
+*.pem
+
+# K8s manifest with real credentials (use k8s-mcp-servers.yaml.template instead)
+deploy/k8s-mcp-servers.yaml
+
+# ─── Python ──────────────────────────────────────────────────────────────────
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+dist/
+build/
+*.egg
+.eggs/
+*.whl
+
+# ─── Virtual environments ────────────────────────────────────────────────────
+venv/
+.venv/
+env/
+
+# ─── IDE / Editor ────────────────────────────────────────────────────────────
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.project
+.settings/
+
+# ─── OS ──────────────────────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db

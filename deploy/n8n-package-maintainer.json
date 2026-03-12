@@ -1,0 +1,260 @@
+{
+  "name": "Package Maintainer Agent",
+  "nodes": [
+    {
+      "id": "cron-trigger",
+      "name": "Weekly Scan",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        208,
+        208
+      ],
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 6 * * 1"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "webhook-trigger",
+      "name": "Manual Trigger",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        208,
+        400
+      ],
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "package-maintainer",
+        "options": {}
+      }
+    },
+    {
+      "id": "prepare-input",
+      "name": "Prepare Input",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        448,
+        304
+      ],
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const input = $input.item.json;\nconst command = input.command || input.body?.command || \"scan\";\nconst pkg = input.package || input.body?.package || \"\";\nconst version = input.version || input.body?.version || \"\";\nconst project = input.project || input.body?.project || \"systemsmanagement:ansible\";\n\nreturn {\n  json: { command, package: pkg, version, project, trigger: $input.item.json.headers ? \"webhook\" : \"cron\" }\n};"
+      }
+    },
+    {
+      "id": "ai-agent",
+      "name": "Package Maintainer",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 1.7,
+      "position": [
+        688,
+        288
+      ],
+      "parameters": {
+        "promptType": "define",
+        "text": "REPLACE_WITH_PROMPT",
+        "options": {
+          "systemMessage": "REPLACE_WITH_SYSTEM_MESSAGE",
+          "maxIterations": 15
+        }
+      }
+    },
+    {
+      "id": "openai-model",
+      "name": "OpenAI GPT-4o",
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenAi",
+      "typeVersion": 1.2,
+      "position": [
+        688,
+        528
+      ],
+      "parameters": {
+        "model": {
+          "__rl": true,
+          "mode": "list",
+          "value": "gpt-4o"
+        },
+        "options": {
+          "maxTokens": 4096,
+          "temperature": 0.2
+        }
+      },
+      "credentials": {
+        "openAiApi": {
+          "id": "REPLACE_WITH_CREDENTIAL_ID",
+          "name": "OpenAi account"
+        }
+      }
+    },
+    {
+      "id": "format-slack",
+      "name": "Format Slack Message",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1008,
+        304
+      ],
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "REPLACE_WITH_SLACK_FORMAT_CODE"
+      }
+    },
+    {
+      "id": "slack-notify",
+      "name": "Send to Slack",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.2,
+      "position": [
+        1248,
+        304
+      ],
+      "parameters": {
+        "select": "channel",
+        "channelId": {
+          "__rl": true,
+          "mode": "name",
+          "value": "all-obsagent"
+        },
+        "text": "={{ $json.text }}"
+      },
+      "credentials": {
+        "slackApi": {
+          "id": "REPLACE_WITH_CREDENTIAL_ID",
+          "name": "Slack account"
+        }
+      }
+    },
+    {
+      "id": "packaging-agent-tools",
+      "name": "Packaging Agent Tools",
+      "type": "@n8n/n8n-nodes-langchain.mcpClientTool",
+      "typeVersion": 1.2,
+      "position": [
+        832,
+        528
+      ],
+      "parameters": {
+        "endpointUrl": "http://packaging-agent:8667/mcp",
+        "options": {
+          "timeout": 600000
+        }
+      }
+    },
+    {
+      "id": "osc-mcp-tools",
+      "name": "osc-mcp Tools",
+      "type": "@n8n/n8n-nodes-langchain.mcpClientTool",
+      "typeVersion": 1.2,
+      "position": [
+        976,
+        528
+      ],
+      "parameters": {
+        "endpointUrl": "http://osc-mcp:8666/mcp",
+        "options": {
+          "timeout": 600000
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Weekly Scan": {
+      "main": [
+        [
+          {
+            "node": "Prepare Input",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Manual Trigger": {
+      "main": [
+        [
+          {
+            "node": "Prepare Input",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Input": {
+      "main": [
+        [
+          {
+            "node": "Package Maintainer",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Package Maintainer": {
+      "main": [
+        [
+          {
+            "node": "Format Slack Message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenAI GPT-4o": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Package Maintainer",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format Slack Message": {
+      "main": [
+        [
+          {
+            "node": "Send to Slack",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Packaging Agent Tools": {
+      "ai_tool": [
+        [
+          {
+            "node": "Package Maintainer",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "osc-mcp Tools": {
+      "ai_tool": [
+        [
+          {
+            "node": "Package Maintainer",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  }
+}
