@@ -243,16 +243,62 @@ python-aiofiles                0    8    0  FAIL (upstream %build structural cha
 
 </details>
 
+## What the AI Does (and Doesn't Do)
+
+The agent uses GPT-4o for tasks that need language understanding, and deterministic code for everything else:
+
+| Step | AI (GPT-4o) | Deterministic (code) |
+|------|-------------|---------------------|
+| Spec update | Updates Version, Release, dependency lines | Validates output, restores casing, protects Source/Name lines |
+| Dependency changes | Applies add/remove/change instructions to spec | **PyPI dep diff**: compares `requires_dist` between versions automatically |
+| Build failure fix | Reads build log, suggests spec fix (fallback only) | Removes stale `%files` entries, fixes `%setup -n` dir mismatch |
+| Patch management | — | Tests each patch with `--fuzz=0`, auto-removes merged patches |
+| Changelog analysis | Reads GitHub release notes, rates risk | Fetches releases via GitHub API |
+| Review | Reviews spec for correctness | 18+ regex lint checks, ecosystem macro checks |
+
+**Design philosophy**: Deterministic first, AI as fallback. The jump from 12.5% to 93% success rate came almost entirely from adding deterministic fixes, not better AI prompts.
+
+### Dependency diffing — what works and what doesn't
+
+For **Python (PyPI) packages**, the agent automatically diffs dependencies between old and new versions:
+
+```
+NEW dependencies to ADD: cryptography
+REMOVED dependencies to DROP: pycryptodome
+CHANGED: aiohttp>=3.7 → aiohttp>=3.9
+```
+
+GPT then applies those exact changes to the spec. The reviewer double-checks that added deps appear and removed deps are gone.
+
+For **Go, Rust, C, Ruby, Perl packages** — there is **no automated dep diffing**. GPT still updates Version/Release, but dependency changes only come from changelog analysis (less reliable). If a Go module adds a new dependency, the agent won't catch it unless the build fails and it can diagnose the error.
+
 ## Limitations
 
+### What the agent handles well
+- **Minor/patch Python version bumps** (e.g., 3.1.5 → 3.1.6) — very reliable, 93% OBS-verified
+- **Packages with merged patches** — auto-detects and removes patches that are now upstream
+- **Tarball naming changes** — auto-fixes when PyPI returns different filenames
+- **Namespace packages** — handles `nspkg.pth` removal in newer setuptools
+
+### What the agent struggles with
+- **Build system changes** — e.g., `setup.py` → `pyproject.toml` migration requires swapping `%py3_build` to `%pyproject_wheel`. The AI may attempt this but it's unreliable.
+- **New C/system dependencies** — If the new version needs `libfoo-devel`, the agent won't know unless it's in PyPI metadata (most C deps aren't).
+- **Major version upgrades** (e.g., 1.x → 2.x) — Often involve API changes, removed modules, or restructured source trees. The agent correctly flags these as NEEDS_HUMAN but can't auto-fix them.
+- **Non-Python dep diffing** — Go modules, Rust crates, Perl CPAN deps are not diffed. The agent only knows about dependency changes from PyPI or from reading the changelog.
+- **Multi-spec / sub-package splits** — Packages with complex `%if` conditionals across multiple flavors may have edge cases the AI doesn't handle.
+- **Upstream structural changes** — If the upstream project removes files the spec references (like `aiofiles/_version.py`), the agent detects the failure but usually can't auto-fix it.
+
+### Operational limitations
 - **No submit requests** — The agent commits to a branch project only. A human must review and submit.
-- **Upstream structural changes** — If the upstream project fundamentally changes its build system (e.g., removes files that the spec's `%build` section references), the agent will detect the failure but cannot auto-fix it.
-- **`_service` packages** — Packages using `obs_scm`/`tar_scm` services work but may need manual revision tag updates for complex service configurations.
+- **`_service` packages** — Packages using `obs_scm`/`tar_scm` work but complex service configs may need manual help.
 - **SLE 15.x compatibility** — The agent targets Tumbleweed. Older SLE repos may fail due to Python version requirements or macro differences.
-- **AI-generated spec changes** — GPT-4o occasionally lowercases package names or modifies sections it shouldn't. The agent has guardrails (casing restoration, integrity validation, Source: line protection) but edge cases exist.
 - **Build cache cold start** — First `osc build` after a fresh setup downloads the full build root (~15-20 min). Subsequent builds use the cache (~30s-2min).
-- **Single architecture focus** — The agent verifies x86_64 builds. Other architectures are checked on OBS post-commit but not locally.
-- **OpenAI dependency** — Requires an OpenAI API key for spec updates and build diagnosis. Each upgrade uses ~3-5 API calls (~$0.02-0.05 per package).
+- **Single architecture local build** — Verifies x86_64 locally. Other architectures are checked on OBS post-commit.
+- **OpenAI dependency** — Requires an OpenAI API key. Each upgrade uses ~3-5 API calls (~$0.02-0.05 per package).
+- **AI guardrails aren't perfect** — GPT-4o occasionally lowercases package names or modifies sections it shouldn't. The agent has guardrails (casing restoration, integrity validation, Source: line protection) but edge cases exist.
+
+### The 93% success rate in context
+The 93% was measured on **Python packages in `devel:languages:python`** where most upgrades are minor/patch versions. For other ecosystems or major version bumps, expect lower rates — the agent will correctly report NEEDS_HUMAN or FAILED rather than silently producing broken packages.
 
 ## Project Structure
 
