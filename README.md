@@ -87,40 +87,49 @@ The setup script will:
 git clone https://github.com/Spectro34/packaging-agent.git
 cd packaging-agent
 
-# Install dependencies
+# 1. Install Python dependencies
 pip install -r requirements.txt
 
-# Configure credentials
+# 2. Configure credentials
 cp .env.example .env
-# Edit .env with your OBS_USER, OBS_PASS, OPENAI_API_KEY
+nano .env   # Fill in OBS_USER, OBS_PASS, OPENAI_API_KEY
 
-# Start osc-mcp (the OBS bridge server)
-# Option A: Use the Go binary directly
-cd deploy && go build -o osc-mcp . && ./osc-mcp &
+# 3. Build and start osc-mcp (requires Go 1.21+)
+cd deploy
+go build -o osc-mcp .
+source ../.env
+./osc-mcp --http 0.0.0.0:8666 --workdir /tmp/mcp-workdir \
+  --api "$OBS_API_URL" --user "$OBS_USER" --password "$OBS_PASS" &
 cd ..
 
-# Option B: Use Docker Compose (starts both servers)
-docker compose up -d
-
-# Test it
+# 4. Test with a dry run (no changes, just shows the plan)
 source .env
-python3 -m packaging_agent upgrade python-aiosqlite 0.22.1 --live --project devel:languages:python
+python3 -m packaging_agent upgrade python-aiosqlite 0.22.1 \
+  --project devel:languages:python
+
+# 5. Test with a live upgrade (branches, builds, commits, verifies on OBS)
+python3 -m packaging_agent upgrade python-aiosqlite 0.22.1 --live \
+  --project devel:languages:python
 ```
 
-### Option 3: Docker Compose
+### Option 3: Docker Compose (no Go required)
 
 ```bash
 git clone https://github.com/Spectro34/packaging-agent.git
 cd packaging-agent
 cp .env.example .env
-# Edit .env with credentials
+nano .env   # Fill in OBS_USER, OBS_PASS, OPENAI_API_KEY
+
+# Start both servers (osc-mcp + packaging-agent MCP)
 docker compose up -d
 
-# Use the CLI (connects to containerized servers)
+# Use the CLI
 source .env
-export MCP_URL=http://localhost:8666/mcp
-python3 -m packaging_agent upgrade python-Werkzeug 3.1.6 --live
+python3 -m packaging_agent upgrade python-Werkzeug 3.1.6 --live \
+  --project devel:languages:python
 ```
+
+> **Note**: `--project` specifies which OBS project to work in. You can set a default via `OBS_PROJECT` in `.env` so you don't need to pass it every time.
 
 ## Configuration
 

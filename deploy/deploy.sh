@@ -13,8 +13,8 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROD_DIR="$(dirname "$SCRIPT_DIR")"
 BACKUP_DIR="$(dirname "$PROD_DIR")/backups/osc-mcp"
 
-NAMESPACE="suse-private-ai"
-CTR="sudo /var/lib/rancher/rke2/bin/ctr --address /run/k3s/containerd/containerd.sock -n k8s.io"
+NAMESPACE="${K8S_NAMESPACE:-suse-private-ai}"
+CTR="${CTR_CMD:-sudo /var/lib/rancher/rke2/bin/ctr --address /run/k3s/containerd/containerd.sock -n k8s.io}"
 
 RED='\033[0;31m'
 GREEN='\033[0;32m'
