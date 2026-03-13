@@ -29,7 +29,7 @@ def load_config(config_dir=None):
         "obs_api_url": os.environ.get("OBS_API_URL") or cfg.get("obs_api_url", "https://api.opensuse.org"),
         "obs_user": os.environ.get("OBS_USER") or cfg.get("obs_user", ""),
         "obs_pass": os.environ.get("OBS_PASS") or cfg.get("obs_pass", ""),
-        "obs_project": os.environ.get("OBS_PROJECT") or cfg.get("obs_project", "systemsmanagement:ansible"),
+        "obs_project": os.environ.get("OBS_PROJECT") or cfg.get("obs_project", "devel:languages:python"),
         "mcp_url": os.environ.get("MCP_URL") or cfg.get("mcp_url", "http://localhost:8666/mcp"),
         "openai_model": os.environ.get("OPENAI_MODEL") or cfg.get("openai_model", "gpt-4o"),
     }

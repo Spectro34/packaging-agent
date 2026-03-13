@@ -88,7 +88,7 @@ git clone https://github.com/Spectro34/packaging-agent.git
 cd packaging-agent
 
 # 1. Install Python dependencies
-pip install -r requirements.txt
+pip install -r requirements.txt    # or: pip install --break-system-packages -r requirements.txt
 
 # 2. Configure credentials
 cp .env.example .env
@@ -97,13 +97,13 @@ nano .env   # Fill in OBS_USER, OBS_PASS, OPENAI_API_KEY
 # 3. Build and start osc-mcp (requires Go 1.21+)
 cd deploy
 go build -o osc-mcp .
-source ../.env
+export $(grep -v '^#' ../.env | xargs)
 ./osc-mcp --http 0.0.0.0:8666 --workdir /tmp/mcp-workdir \
   --api "$OBS_API_URL" --user "$OBS_USER" --password "$OBS_PASS" &
 cd ..
 
 # 4. Test with a dry run (no changes, just shows the plan)
-source .env
+export $(grep -v '^#' .env | xargs)
 python3 -m packaging_agent upgrade python-aiosqlite 0.22.1 \
   --project devel:languages:python
 
@@ -124,10 +124,10 @@ nano .env   # Fill in OBS_USER, OBS_PASS, OPENAI_API_KEY
 docker compose up -d --build
 
 # Install Python deps for the CLI
-pip install -r requirements.txt
+pip install -r requirements.txt    # or: pip install --break-system-packages -r requirements.txt
 
 # Use the CLI
-source .env
+export $(grep -v '^#' .env | xargs)
 python3 -m packaging_agent upgrade python-Werkzeug 3.1.6 --live \
   --project devel:languages:python
 ```
