@@ -3,6 +3,7 @@ HTTP helpers and GPT wrapper for the openSUSE Packaging Agent.
 """
 
 import json
+import time
 import urllib.request
 import urllib.error
 
@@ -69,7 +70,7 @@ def strip_markdown(text):
 
 
 def gpt(system_prompt, user_prompt, api_key, temperature=0.2, max_tokens=1500,
-        json_mode=False, retries=2, model=None):
+        json_mode=False, retries=4, model=None):
     """Call GPT with quality-check retry loop.
 
     Args:
@@ -98,7 +99,8 @@ def gpt(system_prompt, user_prompt, api_key, temperature=0.2, max_tokens=1500,
     if json_mode:
         body["response_format"] = {"type": "json_object"}
 
-    for attempt in range(retries + 1):
+    max_attempts = retries + 1
+    for attempt in range(max_attempts):
         try:
             resp = http_post_json(OPENAI_API, body,
                                   headers={"Authorization": f"Bearer {api_key}"}, timeout=90)
@@ -106,6 +108,15 @@ def gpt(system_prompt, user_prompt, api_key, temperature=0.2, max_tokens=1500,
             if attempt < retries and _is_low_quality_response(text):
                 continue
             return text
+        except urllib.error.HTTPError as e:
+            if e.code == 429 and attempt < max_attempts - 1:
+                wait = min(2 ** attempt * 10, 120)  # 10s, 20s, 40s, 80s, 120s
+                print(f"         [GPT] Rate limited, waiting {wait}s (attempt {attempt + 1}/{max_attempts})...")
+                time.sleep(wait)
+                continue
+            if attempt < retries:
+                continue
+            return f"[GPT error: {e}]"
         except Exception as e:
             if attempt < retries:
                 continue
