@@ -76,7 +76,21 @@ if [ -f "$OSC_MCP_BIN" ]; then
     ok "osc-mcp binary found at deploy/osc-mcp"
 else
     warn "osc-mcp binary not found at deploy/osc-mcp"
-    if [ -f "$BACKUP_TAR" ]; then
+    # Try building from source if Go is available
+    if command -v go &>/dev/null; then
+        echo ""
+        read -p "  Go is available. Build osc-mcp from source? [Y/n] " -r BUILD_GO
+        if [[ ! "$BUILD_GO" =~ ^[Nn] ]]; then
+            info "Building osc-mcp..."
+            (cd "$SCRIPT_DIR/deploy" && go build -o osc-mcp . 2>&1)
+            if [ -f "$OSC_MCP_BIN" ]; then
+                chmod +x "$OSC_MCP_BIN"
+                ok "osc-mcp built successfully"
+            else
+                warn "Build failed. Try: cd deploy && go build -o osc-mcp ."
+            fi
+        fi
+    elif [ -f "$BACKUP_TAR" ]; then
         echo ""
         read -p "  Extract from backup ($BACKUP_TAR)? [Y/n] " -r EXTRACT
         if [[ ! "$EXTRACT" =~ ^[Nn] ]]; then
@@ -88,13 +102,14 @@ else
                 ok "osc-mcp extracted"
             else
                 warn "Could not extract osc-mcp. You'll need Docker Compose mode."
-                warn "See: docker compose up"
             fi
         fi
     else
-        warn "No backup found either. You'll need to:"
-        echo "  - Build osc-mcp from source, or"
-        echo "  - Use Docker Compose mode (docker compose up)"
+        warn "Go is not installed and no binary found."
+        echo "  Options:"
+        echo "    1. Install Go (zypper install go) and re-run setup"
+        echo "    2. Build manually: cd deploy && go build -o osc-mcp ."
+        echo "    3. Use Docker Compose: docker compose up"
     fi
 fi
 
