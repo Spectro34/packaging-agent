@@ -1,3 +1,13 @@
+## Stage 1: Build osc-mcp from Go source
+FROM golang:1.24-alpine AS builder
+RUN apk add --no-cache git
+WORKDIR /src
+COPY deploy/go.mod deploy/go.sum ./
+RUN go mod download
+COPY deploy/ ./
+RUN CGO_ENABLED=0 go build -o /osc-mcp .
+
+## Stage 2: Runtime image with osc + build toolchain
 FROM opensuse/tumbleweed:latest
 
 # osc + full build toolchain for local package builds
@@ -12,8 +22,8 @@ RUN zypper --non-interactive install --no-recommends \
 
 WORKDIR /opt/osc-mcp
 
-# Copy the pre-built osc-mcp binary
-COPY osc-mcp /opt/osc-mcp/osc-mcp
+# Copy the Go binary from the build stage
+COPY --from=builder /osc-mcp /opt/osc-mcp/osc-mcp
 RUN chmod +x /opt/osc-mcp/osc-mcp
 
 # Workdir for checkouts and build roots
@@ -22,7 +32,7 @@ RUN mkdir -p /tmp/mcp-workdir /var/tmp/build-root
 EXPOSE 8666
 
 # Create oscrc from env vars at startup, then launch osc-mcp
-COPY entrypoint.sh /opt/osc-mcp/entrypoint.sh
+COPY deploy/entrypoint.sh /opt/osc-mcp/entrypoint.sh
 RUN chmod +x /opt/osc-mcp/entrypoint.sh
 
 CMD ["/opt/osc-mcp/entrypoint.sh"]

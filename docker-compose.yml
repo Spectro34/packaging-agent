@@ -1,9 +1,8 @@
 # Local development setup — runs both MCP servers without K8s or n8n.
 # Usage:
 #   1. Copy .env.example to .env and fill in credentials
-#   2. Place the osc-mcp binary in deploy/osc-mcp
-#   3. docker compose up
-#   4. Use the CLI: python3 -m packaging_agent upgrade molecule 26.3.0 --live
+#   2. docker compose up  (builds osc-mcp from Go source automatically)
+#   3. Use the CLI: python3 -m packaging_agent upgrade python-Werkzeug 3.1.6 --live
 
 services:
   osc-mcp:

@@ -120,8 +120,11 @@ cd packaging-agent
 cp .env.example .env
 nano .env   # Fill in OBS_USER, OBS_PASS, OPENAI_API_KEY
 
-# Start both servers (osc-mcp + packaging-agent MCP)
-docker compose up -d
+# Build and start both servers (osc-mcp is compiled from source automatically)
+docker compose up -d --build
+
+# Install Python deps for the CLI
+pip install -r requirements.txt
 
 # Use the CLI
 source .env
